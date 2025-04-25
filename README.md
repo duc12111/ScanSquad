@@ -1,1 +1,1 @@
-# makekathon_2025
+# ScanSquad

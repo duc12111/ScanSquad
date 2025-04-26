@@ -8,7 +8,7 @@ import time
 import threading
 import queue
 from collections import OrderedDict
-
+from datetime import datetime
 import cv2
 import numpy as np
 import pydicom
@@ -110,6 +110,54 @@ app.layout = html.Div(
                     }
                 ),
                 
+                # Next button
+                html.Button(
+                    "→",
+                    id="next-image",
+                    style={
+                        "position": "absolute",
+                        "top": "50%",
+                        "right": "35px",
+                        "fontSize": "40px",
+                        "fontWeight": "bold",
+                        "backgroundColor": "rgba(0,0,0,0.3)",
+                        "border": "none",
+                        "color": "white",
+                        "cursor": "pointer",
+                        "borderRadius": "50%",
+                        "width": "60px",
+                        "height": "60px",
+                        "display": "flex",
+                        "alignItems": "center",
+                        "justifyContent": "center",
+                        "transform": "translateY(-50%)"
+                    }
+                ),
+                
+                # Previous button
+                html.Button(
+                    "←",
+                    id="prev-image",
+                    style={
+                        "position": "absolute",
+                        "top": "50%",
+                        "left": "35px",
+                        "fontSize": "40px",
+                        "fontWeight": "bold",
+                        "backgroundColor": "rgba(0,0,0,0.3)",
+                        "border": "none",
+                        "color": "white",
+                        "cursor": "pointer",
+                        "borderRadius": "50%",
+                        "width": "60px",
+                        "height": "60px",
+                        "display": "flex",
+                        "alignItems": "center",
+                        "justifyContent": "center",
+                        "transform": "translateY(-50%)"
+                    }
+                ),
+                
                 # Simple image container
                 html.Img(
                     id="modal-image",
@@ -119,7 +167,13 @@ app.layout = html.Div(
                         "margin": "40px auto",
                         "display": "block"
                     }
-                )
+                ),
+                
+                # Store current image index
+                dcc.Store(id="current-image-index", data=0),
+                
+                # Store total number of images
+                dcc.Store(id="total-images", data=0)
             ]
         ),
         
@@ -215,7 +269,7 @@ def _draw_bounding_boxes(img, x1, y1, x2, y2):
     cv2.putText(img, label, (new_x1, new_y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, font_size, GREEN, thickness)
 
 
-def dicom_to_png_bytes(dicom_bytes):
+def dicom_to_png_bytes(dicom_bytes, conf_threshold=0.5):
     try:
         dcm = pydicom.dcmread(io.BytesIO(dicom_bytes))
         pixel_array = dcm.pixel_array
@@ -241,7 +295,7 @@ def dicom_to_png_bytes(dicom_bytes):
 
             # Draw bounding boxes with confidence > threshold
             for i, (box, conf, cls) in enumerate(zip(boxes, confs, classes)):
-                if conf > 0.5:
+                if conf > conf_threshold:
                     x1, y1, x2, y2 = box.cpu().numpy().astype(int)
 
                     # Calculate physical dimensions if pixel spacing is available
@@ -377,7 +431,7 @@ def generate_mri_report(report_id, stored_images, all_detections, session_memory
                     detection_description += f"- Detection in image {img_id}: In file {source_file}, bounding box coordinates: ({x1}, {y1}, {x2}, {y2}){physical_size_info}, confidence: {confidence:.2f}, class: {cls}\n"
 
         prompt_prefix = (
-            "You are an assistant that helps generate MRI report templates based on visual observations of pre-processed MRI scans.\n"
+            f"You are an assistant that helps generate MRI report templates based on visual observations of pre-processed MRI scans. Today is {datetime.now().strftime('%d.%m.%Y')}.    \n"
             f"I'm providing you with {len(image_contents)} MRI scan images that include bounding boxes from a YOLO model highlighting areas of interest, which may indicate potential abnormalities.\n"
             f"{detection_description}\n"
             "First, describe the visual features of the MRI scans and the bounding boxes (e.g., location, size, shape, contrast, intensity patterns). Include your confidence level in these observations (e.g., high, moderate, low confidence).\n"
@@ -609,7 +663,9 @@ def process_images(list_of_contents, list_of_names):
 # Simple callback to show modal when an image button is clicked
 @app.callback(
     [Output('image-modal', 'style'),
-     Output('modal-image', 'src')],
+     Output('modal-image', 'src'),
+     Output('current-image-index', 'data'),
+     Output('total-images', 'data')],
     [Input({"type": "image-button", "index": ALL}, 'n_clicks')],
     [State('image-store', 'data')],
     prevent_initial_call=True
@@ -625,6 +681,9 @@ def show_modal(n_clicks, stored_images):
     index = json.loads(trigger_id)['index']
     image_id = f"img-{index}"
     
+    # Get total number of images
+    total_images = len(stored_images)
+    
     if image_id in stored_images:
         return {
             "display": "block",
@@ -637,7 +696,43 @@ def show_modal(n_clicks, stored_images):
             "overflow": "auto",
             "backgroundColor": "rgba(0,0,0,0.9)",
             "textAlign": "center"
-        }, f"data:image/png;base64,{stored_images[image_id]}"
+        }, f"data:image/png;base64,{stored_images[image_id]}", index, total_images
+    
+    raise PreventUpdate
+
+
+# Callback to navigate to next image
+@app.callback(
+    [Output('modal-image', 'src', allow_duplicate=True),
+     Output('current-image-index', 'data', allow_duplicate=True)],
+    [Input('next-image', 'n_clicks'),
+     Input('prev-image', 'n_clicks')],
+    [State('current-image-index', 'data'),
+     State('total-images', 'data'),
+     State('image-store', 'data')],
+    prevent_initial_call=True
+)
+def navigate_images(next_clicks, prev_clicks, current_index, total_images, stored_images):
+    ctx = callback_context
+    
+    if not ctx.triggered:
+        raise PreventUpdate
+    
+    # Get which button was clicked
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Calculate new index
+    new_index = current_index
+    if trigger_id == "next-image" and next_clicks:
+        new_index = (current_index + 1) % total_images
+    elif trigger_id == "prev-image" and prev_clicks:
+        new_index = (current_index - 1) % total_images
+    
+    # Get image for the new index
+    image_id = f"img-{new_index}"
+    
+    if image_id in stored_images:
+        return f"data:image/png;base64,{stored_images[image_id]}", new_index
     
     raise PreventUpdate
 

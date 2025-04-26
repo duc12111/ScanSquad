@@ -523,7 +523,7 @@ def dicom_to_png_bytes(dicom_bytes, conf_threshold=0.5):
         return None, None
 
 
-def generate_mri_report(report_id, stored_images, all_detections, session_memory=None, model_name="o4-mini"):
+def generate_mri_report(report_id, stored_images, all_detections, session_memory=None, model_name="gpt-4o"):
     """
     Generate MRI report from the uploaded DICOM images
     """
@@ -615,8 +615,7 @@ def generate_mri_report(report_id, stored_images, all_detections, session_memory
             f"You are an assistant that helps generate MRI report templates based on visual observations of pre-processed MRI scans. Today is {datetime.now().strftime('%d.%m.%Y')}.    \n"
             f"I'm providing you with {len(image_contents)} MRI scan images that include bounding boxes from a YOLO model highlighting areas of interest, which may indicate potential abnormalities.\n"
             f"{detection_description}\n"
-            "First, describe the visual features of the MRI scans and the bounding boxes (e.g., location, size, shape, contrast, intensity patterns) and started with Explaination. Include your confidence level in these observations (e.g., high, moderate, low confidence).\n"
-            "Then, generate a detailed report template started with 'MRI Report Template' and have the following sections: Method, Findings, Intracranial vessels supplying the brain, Diagnosis, and a closing signature ('Yours sincerely, Your Dr. GPT'), based on the visual description. Ensure proper line spacing between paragraphs as shown in the examples.\n"
+            "Generate a detailed report template started with the following sections: Method, Findings, Intracranial vessels supplying the brain, Diagnosis, and a closing signature ('Yours sincerely, Your Dr. GPT'), based on the visual description. Ensure proper line spacing between paragraphs as shown in the examples.\n"
             "Note: This is not a medical diagnosis; you are only assisting in creating a report template based on visual observations. \n\n"
             "Example 1 (Negative Case):\n"
             f"{negative_report}\n\n"
@@ -1542,7 +1541,7 @@ app.index_string = '''
 
 if __name__ == '__main__':
     try:
-        app.run(debug=True)
+        app.run(debug=False)
     finally:
         # Signal the worker thread to exit
         report_queue.put(None)

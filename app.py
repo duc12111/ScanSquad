@@ -20,6 +20,10 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langchain_community.callbacks.manager import get_openai_callback
 import json
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph
 
 # Set the OpenAI API key
 OPENAI_API_KEY = "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"
@@ -180,18 +184,60 @@ app.layout = html.Div(
         # Report output area with loading indicator
         html.Div([
             html.H2("MRI Analysis Report", style={"color": "#333", "marginBottom": "10px"}),
-            html.Div(
+            dcc.Textarea(
                 id="report-output",
                 style={
-                    "minHeight": "200px",
+                    "width": "100%",
+                    "height": "400px",
                     "padding": "20px",
                     "backgroundColor": "white",
                     "borderRadius": "10px",
                     "boxShadow": "0 4px 8px rgba(0,0,0,0.05)",
-                    "whiteSpace": "pre-line"
+                    "whiteSpace": "pre-line",
+                    "fontFamily": "Arial, sans-serif",
+                    "fontSize": "14px",
+                    "lineHeight": "1.5",
+                    "border": "1px solid #ddd"
                 },
-                children="Upload images to generate a report"
-            )
+                value="Upload images to generate a report",
+                readOnly=False
+            ),
+            html.Div([
+                html.Button(
+                    "Save Report",
+                    id="save-report",
+                    style={
+                        "marginTop": "15px",
+                        "marginRight": "10px",
+                        "padding": "10px 20px",
+                        "backgroundColor": "#4CAF50",
+                        "color": "white",
+                        "border": "none",
+                        "borderRadius": "4px",
+                        "cursor": "pointer",
+                        "fontSize": "14px",
+                        "fontWeight": "bold"
+                    }
+                ),
+                html.Button(
+                    "Export PDF",
+                    id="export-pdf",
+                    style={
+                        "marginTop": "15px",
+                        "padding": "10px 20px",
+                        "backgroundColor": "#2196F3",
+                        "color": "white",
+                        "border": "none",
+                        "borderRadius": "4px",
+                        "cursor": "pointer",
+                        "fontSize": "14px",
+                        "fontWeight": "bold"
+                    }
+                )
+            ], style={"display": "flex", "flexDirection": "row"}),
+            
+            # Download component for PDF export
+            dcc.Download(id="download-pdf")
         ], style={"marginTop": "20px"}),
         
         # Interval component for checking report status
@@ -529,10 +575,11 @@ worker_thread.start()
      Output('image-store', 'data'),
      Output('detection-store', 'data'),
      Output('report-id', 'data'),
-     Output('report-output', 'children'),
+     Output('report-output', 'value', allow_duplicate=True),
      Output('report-interval', 'disabled')],
     Input('upload-dicom-folder', 'contents'),
-    State('upload-dicom-folder', 'filename')
+    State('upload-dicom-folder', 'filename'),
+    prevent_initial_call=True
 )
 def process_images(list_of_contents, list_of_names):
     if list_of_contents is not None:
@@ -637,23 +684,8 @@ def process_images(list_of_contents, list_of_names):
             "all_detections": all_detections
         })
         
-        # Show loading message with animation
-        loading_message = html.Div([
-            html.Div([
-                html.Span("Analyzing images...", style={"fontSize": "18px", "fontWeight": "bold"}),
-            ]),
-            html.Div([
-                html.Div([
-                    html.Span("●", style={"color": "#333", "opacity": "0.3", "animationName": "pulse", "animationDuration": "1.4s", "animationIterationCount": "infinite", "animationDelay": "0s"}),
-                    html.Span("●", style={"color": "#333", "opacity": "0.3", "animationName": "pulse", "animationDuration": "1.4s", "animationIterationCount": "infinite", "animationDelay": "0.2s"}),
-                    html.Span("●", style={"color": "#333", "opacity": "0.3", "animationName": "pulse", "animationDuration": "1.4s", "animationIterationCount": "infinite", "animationDelay": "0.4s"}),
-                ], style={"marginTop": "10px"})
-            ]),
-            html.Div([
-                html.Span("Please wait while our AI analyzes your images. This may take up to a minute.",
-                     style={"marginTop": "20px", "color": "#666"})
-            ], style={"marginTop": "20px"})
-        ])
+        # Loading message
+        loading_message = "Analyzing images...\n\nPlease wait while our AI analyzes your images. This may take up to a minute."
         
         return images, stored_images, all_detections, report_id, loading_message, False
     
@@ -762,7 +794,7 @@ def close_modal(n_clicks):
 
 
 @app.callback(
-    [Output('report-output', 'children', allow_duplicate=True),
+    [Output('report-output', 'value', allow_duplicate=True),
      Output('report-interval', 'disabled', allow_duplicate=True)],
     Input('report-interval', 'n_intervals'),
     State('report-id', 'data'),
@@ -777,18 +809,110 @@ def update_report_status(n_intervals, report_id):
     if result.get("status") == "complete":
         # Report is complete, display it
         report_text = result.get("report", "No report generated")
-        return dcc.Markdown(report_text), True
+        return report_text, True
     
     elif result.get("status") == "error":
         # There was an error, display error message
         error_message = result.get("message", "An error occurred while generating the report")
-        return html.Div([
-            html.Div("❌ Error", style={"color": "red", "fontWeight": "bold", "fontSize": "18px"}),
-            html.Div(error_message, style={"marginTop": "10px"})
-        ]), True
+        return f"❌ Error\n\n{error_message}", True
     
     # Still processing, continue polling
     return no_update, no_update
+
+
+# Callback to update the initial report textarea when files are uploaded
+@app.callback(
+    Output('report-output', 'value'),
+    Input('upload-dicom-folder', 'contents'),
+    prevent_initial_call=True
+)
+def reset_report_textarea(contents):
+    if contents:
+        return "Analyzing images... Please wait for the report to be generated."
+    return no_update
+
+
+# Callback for Save Report button
+@app.callback(
+    Output('report-output', 'value', allow_duplicate=True),
+    Input('save-report', 'n_clicks'),
+    State('report-output', 'value'),
+    prevent_initial_call=True
+)
+def save_report(n_clicks, report_content):
+    if n_clicks and report_content:
+        # For now, we just acknowledge the save action in the UI
+        # In a real application, you might save to a database or file
+        saved_report = report_content + "\n\n[Report saved at " + datetime.now().strftime("%d.%m.%Y %H:%M:%S") + "]"
+        return saved_report
+    return no_update
+
+
+# Callback for Export PDF button
+@app.callback(
+    Output("download-pdf", "data"),
+    Input("export-pdf", "n_clicks"),
+    State("report-output", "value"),
+    prevent_initial_call=True
+)
+def export_pdf(n_clicks, report_content):
+    if n_clicks and report_content:
+        # Create a PDF file with the report content
+        buffer = io.BytesIO()
+        
+        # Create PDF document
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        styles = getSampleStyleSheet()
+        
+        # Parse the report content
+        elements = []
+        
+        # Add title
+        title_style = styles["Title"]
+        elements.append(Paragraph("MRI Analysis Report", title_style))
+        
+        # Add date
+        date_style = styles["Normal"]
+        date_style.alignment = 1  # Center alignment
+        elements.append(Paragraph(f"Generated on {datetime.now().strftime('%d.%m.%Y')}", date_style))
+        
+        # Add a spacer
+        elements.append(Paragraph("<br/><br/>", styles["Normal"]))
+        
+        # Process the report content
+        for line in report_content.split('\n'):
+            if line.startswith('**') and line.endswith('**'):
+                # Section headers (marked with **)
+                header_text = line.strip('**')
+                elements.append(Paragraph(header_text, styles["Heading2"]))
+            elif line.strip() == "":
+                # Empty lines become spacing
+                elements.append(Paragraph("<br/>", styles["Normal"]))
+            else:
+                # Regular text
+                elements.append(Paragraph(line, styles["Normal"]))
+        
+        # Build the PDF
+        doc.build(elements)
+        
+        # Get the value from the BytesIO buffer and encode as base64
+        pdf_data = buffer.getvalue()
+        buffer.close()
+        
+        # Encode the PDF as base64 for Dash Download component
+        encoded_pdf = base64.b64encode(pdf_data).decode('utf-8')
+        
+        # Create the download data dictionary with base64 content
+        filename = f"MRI_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return {
+            "content": encoded_pdf,
+            "filename": filename,
+            "type": "application/pdf",
+            "base64": True
+        }
+    
+    return no_update
 
 
 if __name__ == '__main__':

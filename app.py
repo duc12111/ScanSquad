@@ -34,7 +34,7 @@ report_queue = queue.Queue()
 report_results = {}
 
 app = Dash(__name__)
-app.title = "DICOM to PNG Viewer"
+app.title = "Medical Report Generator"
 
 # Define animations using keyframes in a style dictionary
 dot_animation_style = {
@@ -42,43 +42,233 @@ dot_animation_style = {
     "opacity": "0.3"
 }
 
+# Update layout to create two pages
 app.layout = html.Div(
-    style={"backgroundColor": "#f9f9f9", "padding": "2rem", "fontFamily": "Arial, sans-serif"},
+    style={"backgroundColor": "#f9f9f9", "fontFamily": "Arial, sans-serif", "height": "100vh"},
     children=[
-        html.H1("DICOM to PNG Viewer", style={"textAlign": "center", "color": "#333"}),
-
-        dcc.Upload(
-            id='upload-dicom-folder',
-            children=html.Div([
-                "Drag and Drop or ",
-                html.A("Select DICOM Files")
-            ]),
-            style={
-                "width": "100%",
-                "height": "150px",
-                "lineHeight": "150px",
-                "borderWidth": "2px",
-                "borderStyle": "dashed",
-                "borderRadius": "10px",
-                "textAlign": "center",
-                "backgroundColor": "#ffffff",
-                "color": "#333",
-                "marginBottom": "20px",
-            },
-            multiple=True
-        ),
-
+        # Store to track which page to show
+        dcc.Store(id="page-state", data={"current_page": "landing"}),
+        
+        # LANDING PAGE
         html.Div(
-            id='output-images',
-            style={
-                "whiteSpace": "nowrap",
-                "overflowX": "auto",
-                "padding": "1rem",
-                "backgroundColor": "#ffffff",
-                "borderRadius": "10px",
-                "boxShadow": "0 4px 8px rgba(0,0,0,0.05)",
-                "marginTop": "20px"
-            }
+            id="landing-page",
+            style={"padding": "2rem", "maxWidth": "800px", "margin": "0 auto", "textAlign": "center"},
+            children=[
+                html.H1("Medical Report Generator", style={"textAlign": "center", "color": "#333", "marginBottom": "10px"}),
+                html.P("Upload your DICOM images to detect abnormalities and receive a medical report.", 
+                       style={"textAlign": "center", "color": "#666", "marginBottom": "30px"}),
+                
+                html.Div(
+                    style={
+                        "border": "2px dashed #ccc",
+                        "borderRadius": "10px",
+                        "padding": "50px 20px",
+                        "backgroundColor": "white",
+                        "marginBottom": "20px"
+                    },
+                    children=[
+                        html.Img(src="/assets/upload_icon.png", style={"width": "50px", "height": "50px", "opacity": "0.6", "marginBottom": "20px"}),
+                        html.Div("Drop your DICOM folder here", style={"fontSize": "18px", "fontWeight": "bold", "marginBottom": "10px"}),
+                        html.Div("or click to browse your files", style={"fontSize": "14px", "color": "#666", "marginBottom": "20px"}),
+                        dcc.Upload(
+                            id='upload-dicom-folder',
+                            children=html.Button("Select Folder",
+                                                 style={
+                                                     "backgroundColor": "#007bff",
+                                                     "color": "white",
+                                                     "padding": "10px 20px",
+                                                     "border": "none",
+                                                     "borderRadius": "5px",
+                                                     "cursor": "pointer",
+                                                     "fontSize": "14px"
+                                                 }),
+                            style={
+                                "width": "100%",
+                                "textAlign": "center",
+                            },
+                            multiple=True
+                        ),
+                    ]
+                ),
+                html.Div("Supported formats: DICOM (.dcm)", style={"fontSize": "12px", "color": "#888"}),
+            ]
+        ),
+        
+        # RESULTS PAGE
+        html.Div(
+            id="results-page",
+            style={"display": "none", "padding": "2rem", "maxWidth": "1200px", "margin": "0 auto"},
+            children=[
+                # Top navigation bar with back button
+                html.Div(
+                    style={"display": "flex", "alignItems": "center", "marginBottom": "20px"},
+                    children=[
+                        html.Button(
+                            "← Back", 
+                            id="back-button",
+                            style={
+                                "backgroundColor": "transparent",
+                                "border": "none",
+                                "color": "#007bff",
+                                "cursor": "pointer",
+                                "fontSize": "14px",
+                                "marginRight": "20px"
+                            }
+                        ),
+                        html.H2("Medical Report", style={"margin": "0", "flexGrow": "1"}),
+                    ]
+                ),
+                
+                # Main content - two columns
+                html.Div(
+                    style={"display": "flex", "gap": "20px"},
+                    children=[
+                        # Left column - Report
+                        html.Div(
+                            style={
+                                "flex": "1", 
+                                "backgroundColor": "white", 
+                                "borderRadius": "10px", 
+                                "padding": "0",
+                                "boxShadow": "0 2px 5px rgba(0,0,0,0.1)",
+                                "display": "flex",
+                                "flexDirection": "column"
+                            },
+                            children=[
+                                dcc.Textarea(
+                                    id="report-output",
+                                    style={
+                                        "width": "100%",
+                                        "height": "calc(100vh - 250px)",
+                                        "padding": "20px",
+                                        "backgroundColor": "white",
+                                        "borderRadius": "10px",
+                                        "whiteSpace": "pre-line",
+                                        "fontFamily": "Arial, sans-serif",
+                                        "fontSize": "14px",
+                                        "lineHeight": "1.5",
+                                        "marginBottom": "15px",
+                                        "border": "none",
+                                        "resize": "none",
+                                        "boxSizing": "border-box"
+                                    },
+                                    value="Analyzing images...\n\nPlease wait while our AI analyzes your images. This may take up to a minute.",
+                                    readOnly=True
+                                ),
+                                html.Div(
+                                    style={
+                                        "display": "flex", 
+                                        "justifyContent": "flex-end", 
+                                        "gap": "10px",
+                                        "padding": "0 20px 20px 20px"
+                                    },
+                                    children=[
+                                        html.Button(
+                                            "Edit", 
+                                            id="toggle-edit-mode",
+                                            style={
+                                                "padding": "8px 20px",
+                                                "backgroundColor": "#FF9800",
+                                                "color": "white",
+                                                "border": "none",
+                                                "borderRadius": "4px",
+                                                "cursor": "pointer",
+                                                "fontSize": "14px"
+                                            }
+                                        ),
+                                        html.Button(
+                                            "Download PDF", 
+                                            id="export-pdf",
+                                            style={
+                                                "padding": "8px 20px",
+                                                "backgroundColor": "#2196F3",
+                                                "color": "white",
+                                                "border": "none",
+                                                "borderRadius": "4px",
+                                                "cursor": "pointer",
+                                                "fontSize": "14px"
+                                            }
+                                        ),
+                                    ]
+                                )
+                            ]
+                        ),
+                        
+                        # Right column - Images
+                        html.Div(
+                            style={"flex": "1", "backgroundColor": "white", "borderRadius": "10px", "padding": "20px", "boxShadow": "0 2px 5px rgba(0,0,0,0.1)"},
+                            children=[
+                                html.H3("Images", style={"marginTop": "0", "marginBottom": "15px"}),
+                                
+                                # Navigation controls
+                                html.Div(
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "center",
+                                        "alignItems": "center",
+                                        "marginBottom": "15px",
+                                        "gap": "15px"
+                                    },
+                                    children=[
+                                        html.Button(
+                                            "▲", 
+                                            id="prev-display-image",
+                                            style={
+                                                "fontSize": "16px",
+                                                "padding": "5px 15px",
+                                                "backgroundColor": "#f0f0f0",
+                                                "border": "none",
+                                                "borderRadius": "4px",
+                                                "cursor": "pointer"
+                                            }
+                                        ),
+                                        html.Div(
+                                            id="image-counter",
+                                            style={"fontSize": "14px", "fontWeight": "bold"},
+                                            children="Image 1 of 1"
+                                        ),
+                                        html.Button(
+                                            "▼", 
+                                            id="next-display-image",
+                                            style={
+                                                "fontSize": "16px",
+                                                "padding": "5px 15px",
+                                                "backgroundColor": "#f0f0f0",
+                                                "border": "none",
+                                                "borderRadius": "4px",
+                                                "cursor": "pointer"
+                                            }
+                                        ),
+                                    ]
+                                ),
+                                
+                                # Single image display
+                                html.Div(
+                                    id="current-image-display",
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "center",
+                                        "alignItems": "center",
+                                        "height": "calc(100vh - 300px)",
+                                        "backgroundColor": "#f9f9f9",
+                                        "borderRadius": "8px",
+                                        "overflow": "hidden"
+                                    }
+                                ),
+                                
+                                # Hide the output-images div but keep it for storing all images
+                                html.Div(
+                                    id="output-images",
+                                    style={"display": "none"}
+                                )
+                            ]
+                        )
+                    ]
+                ),
+                
+                # Download component for PDF export
+                dcc.Download(id="download-pdf")
+            ]
         ),
         
         # Simplified modal for full-size image viewing
@@ -181,68 +371,6 @@ app.layout = html.Div(
             ]
         ),
         
-        # Report output area with loading indicator
-        html.Div([
-            html.H2("MRI Analysis Report", style={"color": "#333", "marginBottom": "10px"}),
-            dcc.Textarea(
-                id="report-output",
-                style={
-                    "width": "100%",
-                    "height": "400px",
-                    "padding": "20px",
-                    "backgroundColor": "white",
-                    "borderRadius": "10px",
-                    "boxShadow": "0 4px 8px rgba(0,0,0,0.05)",
-                    "whiteSpace": "pre-line",
-                    "fontFamily": "Arial, sans-serif",
-                    "fontSize": "14px",
-                    "lineHeight": "1.5",
-                    "border": "1px solid #4CAF50",
-                    "cursor": "text"
-                },
-                value="Upload images to generate a report",
-                readOnly=False
-            ),
-            html.Div([
-                html.Button(
-                    "Export PDF",
-                    id="export-pdf",
-                    style={
-                        "marginTop": "15px",
-                        "marginRight": "10px",
-                        "padding": "10px 20px",
-                        "backgroundColor": "#2196F3",
-                        "color": "white",
-                        "border": "none",
-                        "borderRadius": "4px",
-                        "cursor": "pointer",
-                        "fontSize": "14px",
-                        "fontWeight": "bold"
-                    }
-                ),
-                html.Button(
-                    "Save",
-                    id="toggle-edit-mode",
-                    style={
-                        "marginTop": "15px",
-                        "padding": "10px 20px",
-                        "backgroundColor": "#4CAF50",
-                        "color": "white",
-                        "border": "none",
-                        "borderRadius": "4px",
-                        "cursor": "pointer",
-                        "fontSize": "14px",
-                        "fontWeight": "bold"
-                    }
-                ),
-                # Store to track editing mode state
-                dcc.Store(id="edit-mode-store", data={"edit_mode": True})
-            ], style={"display": "flex", "flexDirection": "row"}),
-            
-            # Download component for PDF export
-            dcc.Download(id="download-pdf")
-        ], style={"marginTop": "20px"}),
-        
         # Interval component for checking report status
         dcc.Interval(
             id='report-interval',
@@ -258,7 +386,13 @@ app.layout = html.Div(
         dcc.Store(id='detection-store'),
         
         # Store for report ID
-        dcc.Store(id='report-id')
+        dcc.Store(id='report-id'),
+        
+        # Store to track editing mode state
+        dcc.Store(id="edit-mode-store", data={"edit_mode": False}),
+        
+        # Store for current displayed image index
+        dcc.Store(id='current-display-image-index', data=0)
     ]
 )
 
@@ -483,9 +617,9 @@ def generate_mri_report(report_id, stored_images, all_detections, session_memory
             f"You are an assistant that helps generate MRI report templates based on visual observations of pre-processed MRI scans. Today is {datetime.now().strftime('%d.%m.%Y')}.    \n"
             f"I'm providing you with {len(image_contents)} MRI scan images that include bounding boxes from a YOLO model highlighting areas of interest, which may indicate potential abnormalities.\n"
             f"{detection_description}\n"
-            "First, describe the visual features of the MRI scans and the bounding boxes (e.g., location, size, shape, contrast, intensity patterns). Include your confidence level in these observations (e.g., high, moderate, low confidence).\n"
-            "Then, generate a detailed report template with the following sections: Method, Findings, Intracranial vessels supplying the brain, Diagnosis, and a closing signature ('Yours sincerely, Your Dr. GPT'), based on the visual description. Ensure proper line spacing between paragraphs as shown in the examples.\n"
-            "Note: This is not a medical diagnosis; you are only assisting in creating a report template based on visual observations.\n\n"
+            "First, describe the visual features of the MRI scans and the bounding boxes (e.g., location, size, shape, contrast, intensity patterns) and started with Explaination. Include your confidence level in these observations (e.g., high, moderate, low confidence).\n"
+            "Then, generate a detailed report template started with 'MRI Report Template' and have the following sections: Method, Findings, Intracranial vessels supplying the brain, Diagnosis, and a closing signature ('Yours sincerely, Your Dr. GPT'), based on the visual description. Ensure proper line spacing between paragraphs as shown in the examples.\n"
+            "Note: This is not a medical diagnosis; you are only assisting in creating a report template based on visual observations. \n\n"
             "Example 1 (Negative Case):\n"
             f"{negative_report}\n\n"
             "Example 2 (Positive Case):\n"
@@ -573,6 +707,45 @@ worker_thread = threading.Thread(target=report_worker, daemon=True)
 worker_thread.start()
 
 
+# New callback to switch pages when DICOM files are uploaded
+@app.callback(
+    [Output('landing-page', 'style'),
+     Output('results-page', 'style'),
+     Output('page-state', 'data')],
+    [Input('upload-dicom-folder', 'contents'),
+     Input('back-button', 'n_clicks')],
+    [State('page-state', 'data')],
+    prevent_initial_call=True
+)
+def toggle_page_visibility(upload_contents, back_button, page_state):
+    ctx = callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+        
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Default styles
+    landing_style = {"padding": "2rem", "maxWidth": "800px", "margin": "0 auto", "textAlign": "center"}
+    results_style = {"display": "none", "padding": "2rem", "maxWidth": "1200px", "margin": "0 auto"}
+    
+    if trigger_id == 'upload-dicom-folder' and upload_contents:
+        # User uploaded files, show results page
+        landing_style["display"] = "none"
+        results_style["display"] = "block"
+        new_page_state = {"current_page": "results"}
+    elif trigger_id == 'back-button' and back_button:
+        # User clicked back, show landing page
+        landing_style["display"] = "block"
+        results_style["display"] = "none"
+        new_page_state = {"current_page": "landing"}
+    else:
+        # Keep current state
+        return no_update, no_update, no_update
+        
+    return landing_style, results_style, new_page_state
+
+
+# Modify the process_images callback to update for new layout
 @app.callback(
     [Output('output-images', 'children'),
      Output('image-store', 'data'),
@@ -620,7 +793,7 @@ def process_images(list_of_contents, list_of_names):
             if detection_data:
                 all_detections[image_id] = detection_data
             
-            # Create a simple button that will trigger the modal
+            # Create a simple button that will trigger the modal - updated styling for the new layout
             img_container = html.Div([
                 html.Button(
                     id={"type": "image-button", "index": i},
@@ -628,10 +801,10 @@ def process_images(list_of_contents, list_of_names):
                         html.Img(
                             src=f"data:image/png;base64,{png_encoded}",
                             style={
-                                "height": "200px",
-                                "width": "auto",
-                                "maxWidth": "100%",
-                                "borderRadius": "8px"
+                                "width": "100%", 
+                                "height": "auto",
+                                "borderRadius": "8px",
+                                "objectFit": "contain"
                             }
                         )
                     ],
@@ -652,28 +825,14 @@ def process_images(list_of_contents, list_of_names):
                         "color": "#555",
                         "fontWeight": "bold"
                     }
-                ),
-                html.Div(
-                    "Click to view full size",
-                    style={
-                        "textAlign": "center",
-                        "fontSize": "12px",
-                        "color": "#777",
-                        "fontStyle": "italic"
-                    }
                 )
             ],
             style={
-                "display": "inline-block",
-                "marginRight": "15px",
                 "marginBottom": "15px",
-                "width": "220px",
-                "padding": "10px",
-                "backgroundColor": "white",
+                "backgroundColor": "#f5f5f5",
                 "borderRadius": "10px",
-                "boxShadow": "0 2px 5px rgba(0,0,0,0.1)",
+                "padding": "10px",
                 "transition": "transform 0.2s, box-shadow 0.2s",
-                "verticalAlign": "top"
             })
             
             images.append(img_container)
@@ -696,103 +855,189 @@ def process_images(list_of_contents, list_of_names):
     return no_update, no_update, no_update, no_update, no_update, True, no_update
 
 
-# Simple callback to show modal when an image button is clicked
+# Update the initialize_image_display callback to use pattern-matching IDs
 @app.callback(
-    [Output('image-modal', 'style'),
-     Output('modal-image', 'src'),
-     Output('current-image-index', 'data'),
-     Output('total-images', 'data')],
-    [Input({"type": "image-button", "index": ALL}, 'n_clicks')],
-    [State('image-store', 'data')],
+    [Output('current-image-display', 'children', allow_duplicate=True),
+     Output('image-counter', 'children', allow_duplicate=True),
+     Output('current-display-image-index', 'data', allow_duplicate=True)],
+    Input('image-store', 'data'),
     prevent_initial_call=True
 )
-def show_modal(n_clicks, stored_images):
-    ctx = callback_context
+def initialize_image_display(stored_images):
+    if not stored_images:
+        return html.Div("No images uploaded"), "Image 0 of 0", 0
+        
+    # Convert stored_images to a list for easier indexing
+    img_list = list(stored_images.items())
+    total_images = len(img_list)
     
-    if not ctx.triggered or not any(n_clicks):
-        raise PreventUpdate
+    if total_images > 0:
+        image_id, png_encoded = img_list[0]
+        # Wrap the image in a button with a pattern-matching ID
+        img = html.Button(
+            id={"type": "main-image-button", "index": 0},
+            children=[
+                html.Img(
+                    src=f"data:image/png;base64,{png_encoded}",
+                    style={
+                        "maxWidth": "100%",
+                        "maxHeight": "100%",
+                        "objectFit": "contain"
+                    }
+                )
+            ],
+            style={
+                "background": "none",
+                "border": "none",
+                "cursor": "pointer",
+                "padding": "0",
+                "width": "100%",
+                "height": "100%",
+                "display": "flex",
+                "justifyContent": "center",
+                "alignItems": "center"
+            }
+        )
+        counter_text = f"Image 1 of {total_images}"
+        return img, counter_text, 0
     
-    # Get index of clicked image
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    index = json.loads(trigger_id)['index']
-    image_id = f"img-{index}"
-    
-    # Get total number of images
-    total_images = len(stored_images)
-    
-    if image_id in stored_images:
-        return {
-            "display": "block",
-            "position": "fixed",
-            "zIndex": "1000",
-            "left": "0",
-            "top": "0",
-            "width": "100%",
-            "height": "100%",
-            "overflow": "auto",
-            "backgroundColor": "rgba(0,0,0,0.9)",
-            "textAlign": "center"
-        }, f"data:image/png;base64,{stored_images[image_id]}", index, total_images
-    
-    raise PreventUpdate
+    return html.Div("No images uploaded"), "Image 0 of 0", 0
 
 
-# Callback to navigate to next image
+# Update the navigation callback to use pattern-matching IDs
 @app.callback(
-    [Output('modal-image', 'src', allow_duplicate=True),
-     Output('current-image-index', 'data', allow_duplicate=True)],
-    [Input('next-image', 'n_clicks'),
-     Input('prev-image', 'n_clicks')],
-    [State('current-image-index', 'data'),
-     State('total-images', 'data'),
-     State('image-store', 'data')],
+    [Output('current-image-display', 'children'),
+     Output('image-counter', 'children'),
+     Output('current-display-image-index', 'data')],
+    [Input('prev-display-image', 'n_clicks'),
+     Input('next-display-image', 'n_clicks')],
+    [State('image-store', 'data'),
+     State('current-display-image-index', 'data')],
     prevent_initial_call=True
 )
-def navigate_images(next_clicks, prev_clicks, current_index, total_images, stored_images):
+def navigate_display_images(prev_clicks, next_clicks, stored_images, current_index):
+    if not stored_images:
+        return html.Div("No images uploaded"), "Image 0 of 0", 0
+        
     ctx = callback_context
-    
     if not ctx.triggered:
         raise PreventUpdate
+        
+    # Convert stored_images to a list for easier indexing
+    img_list = list(stored_images.items())
+    total_images = len(img_list)
+    
+    if total_images == 0:
+        return html.Div("No images uploaded"), "Image 0 of 0", 0
     
     # Get which button was clicked
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
     # Calculate new index
     new_index = current_index
-    if trigger_id == "next-image" and next_clicks:
+    if trigger_id == "next-display-image" and next_clicks:
         new_index = (current_index + 1) % total_images
-    elif trigger_id == "prev-image" and prev_clicks:
+    elif trigger_id == "prev-display-image" and prev_clicks:
         new_index = (current_index - 1) % total_images
     
     # Get image for the new index
-    image_id = f"img-{new_index}"
+    if total_images > 0:
+        image_id, png_encoded = img_list[new_index]
+        # Wrap the image in a button with a pattern-matching ID
+        img = html.Button(
+            id={"type": "main-image-button", "index": new_index},
+            children=[
+                html.Img(
+                    src=f"data:image/png;base64,{png_encoded}",
+                    style={
+                        "maxWidth": "100%",
+                        "maxHeight": "100%",
+                        "objectFit": "contain"
+                    }
+                )
+            ],
+            style={
+                "background": "none",
+                "border": "none",
+                "cursor": "pointer",
+                "padding": "0",
+                "width": "100%",
+                "height": "100%",
+                "display": "flex",
+                "justifyContent": "center",
+                "alignItems": "center"
+            }
+        )
+        counter_text = f"Image {new_index + 1} of {total_images}"
+        return img, counter_text, new_index
     
-    if image_id in stored_images:
-        return f"data:image/png;base64,{stored_images[image_id]}", new_index
-    
-    raise PreventUpdate
+    return html.Div("No images uploaded"), "Image 0 of 0", 0
 
 
-# Callback to close the modal
+# Update the modal callback to use pattern-matching IDs for the main image button
 @app.callback(
-    Output('image-modal', 'style', allow_duplicate=True),
-    Input('close-modal', 'n_clicks'),
+    [Output('image-modal', 'style'),
+     Output('modal-image', 'src'),
+     Output('current-image-index', 'data'),
+     Output('total-images', 'data')],
+    [Input({"type": "image-button", "index": ALL}, 'n_clicks'),
+     Input({"type": "main-image-button", "index": ALL}, 'n_clicks')],
+    [State('image-store', 'data'),
+     State('current-display-image-index', 'data')],
     prevent_initial_call=True
 )
-def close_modal(n_clicks):
-    if n_clicks:
-        return {
-            "display": "none",
-            "position": "fixed",
-            "zIndex": "1000",
-            "left": "0",
-            "top": "0",
-            "width": "100%",
-            "height": "100%",
-            "overflow": "auto",
-            "backgroundColor": "rgba(0,0,0,0.9)",
-            "textAlign": "center"
-        }
+def show_modal(thumbnail_clicks, main_image_clicks, stored_images, current_display_index):
+    ctx = callback_context
+    
+    if not ctx.triggered or (not any(thumbnail_clicks) and not any(main_image_clicks)):
+        raise PreventUpdate
+    
+    # Get total number of images
+    total_images = len(stored_images) if stored_images else 0
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Check if the click came from the main displayed image
+    if '"type":"main-image-button"' in trigger_id and any(main_image_clicks):
+        # Clicked on the main displayed image
+        img_list = list(stored_images.items())
+        if current_display_index < len(img_list):
+            image_id, png_encoded = img_list[current_display_index]
+            return {
+                "display": "block",
+                "position": "fixed",
+                "zIndex": "1000",
+                "left": "0",
+                "top": "0",
+                "width": "100%",
+                "height": "100%",
+                "overflow": "auto",
+                "backgroundColor": "rgba(0,0,0,0.9)",
+                "textAlign": "center"
+            }, f"data:image/png;base64,{png_encoded}", current_display_index, total_images
+    else:
+        # Handle original thumbnail clicks
+        try:
+            # Get index of clicked image from thumbnail grid
+            index = json.loads(trigger_id)['index']
+            image_id = f"img-{index}"
+            
+            if image_id in stored_images:
+                return {
+                    "display": "block",
+                    "position": "fixed",
+                    "zIndex": "1000",
+                    "left": "0",
+                    "top": "0",
+                    "width": "100%",
+                    "height": "100%",
+                    "overflow": "auto",
+                    "backgroundColor": "rgba(0,0,0,0.9)",
+                    "textAlign": "center"
+                }, f"data:image/png;base64,{stored_images[image_id]}", index, total_images
+        except:
+            # Handle any parsing errors
+            pass
     
     raise PreventUpdate
 
@@ -811,8 +1056,8 @@ def update_report_status(n_intervals, report_id, edit_mode_data):
         return no_update, no_update, no_update
     
     result = report_results[report_id]
-    current_edit_mode = edit_mode_data.get('edit_mode', True)
-    read_only = not current_edit_mode  # If in view mode, set readOnly to True
+    current_edit_mode = edit_mode_data.get('edit_mode', False)
+    read_only = not current_edit_mode  # If in edit mode, set readOnly to False
     
     if result.get("status") == "complete":
         # Report is complete, display it
@@ -857,12 +1102,12 @@ def export_pdf(n_clicks, report_content):
         doc = SimpleDocTemplate(buffer, pagesize=letter)
         styles = getSampleStyleSheet()
         
-        # Parse the report content
+        # Add elements to build PDF
         elements = []
         
         # Add title
         title_style = styles["Title"]
-        elements.append(Paragraph("MRI Analysis Report", title_style))
+        elements.append(Paragraph("Medical Report", title_style))
         
         # Add date
         date_style = styles["Normal"]
@@ -872,18 +1117,63 @@ def export_pdf(n_clicks, report_content):
         # Add a spacer
         elements.append(Paragraph("<br/><br/>", styles["Normal"]))
         
-        # Process the report content
+        # Process the report content by sections based on markdown formatting
+        current_section = None
+        section_content = []
+        
         for line in report_content.split('\n'):
-            if line.startswith('**') and line.endswith('**'):
-                # Section headers (marked with **)
-                header_text = line.strip('**')
-                elements.append(Paragraph(header_text, styles["Heading2"]))
+            # Process headings (lines that start with # or ##)
+            if line.startswith('# '):
+                # If we have content from a previous section, add it first
+                if current_section and section_content:
+                    header_style = styles["Heading2"]
+                    elements.append(Paragraph(current_section, header_style))
+                    
+                    # Add the content as paragraphs
+                    for content_line in section_content:
+                        elements.append(Paragraph(content_line, styles["Normal"]))
+                    
+                    # Add spacing after section
+                    elements.append(Paragraph("<br/>", styles["Normal"]))
+                
+                # Start a new main section
+                current_section = line[2:].strip()  # Remove the # and spaces
+                section_content = []
+                
+            elif line.startswith('## '):
+                # If we have content from a previous section, add it first
+                if current_section and section_content:
+                    header_style = styles["Heading2"]
+                    elements.append(Paragraph(current_section, header_style))
+                    
+                    # Add the content as paragraphs
+                    for content_line in section_content:
+                        elements.append(Paragraph(content_line, styles["Normal"]))
+                    
+                    # Add spacing after section
+                    elements.append(Paragraph("<br/>", styles["Normal"]))
+                
+                # Start a new subsection
+                current_section = line[3:].strip()  # Remove the ## and spaces
+                section_content = []
+                
             elif line.strip() == "":
-                # Empty lines become spacing
-                elements.append(Paragraph("<br/>", styles["Normal"]))
+                # Empty line - add spacing if we have content
+                if section_content:
+                    section_content.append("")
             else:
-                # Regular text
-                elements.append(Paragraph(line, styles["Normal"]))
+                # Regular text line - add to current section content
+                section_content.append(line)
+        
+        # Add the last section if there is one
+        if current_section and section_content:
+            header_style = styles["Heading2"]
+            elements.append(Paragraph(current_section, header_style))
+            
+            # Add the content as paragraphs
+            for content_line in section_content:
+                if content_line:  # Skip empty strings
+                    elements.append(Paragraph(content_line, styles["Normal"]))
         
         # Build the PDF
         doc.build(elements)
@@ -896,7 +1186,7 @@ def export_pdf(n_clicks, report_content):
         encoded_pdf = base64.b64encode(pdf_data).decode('utf-8')
         
         # Create the download data dictionary with base64 content
-        filename = f"MRI_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        filename = f"Medical_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         
         return {
             "content": encoded_pdf,
@@ -921,7 +1211,7 @@ def export_pdf(n_clicks, report_content):
 def toggle_edit_mode(n_clicks, edit_mode_data):
     if n_clicks:
         # Toggle the edit mode
-        current_edit_mode = edit_mode_data.get('edit_mode', True)
+        current_edit_mode = edit_mode_data.get('edit_mode', False)
         new_edit_mode = not current_edit_mode
         
         # Update button text and style based on new mode
@@ -929,15 +1219,13 @@ def toggle_edit_mode(n_clicks, edit_mode_data):
             # Switching to edit mode
             button_text = "Save"
             button_style = {
-                "marginTop": "15px",
-                "padding": "10px 20px",
-                "backgroundColor": "#4CAF50", # BLUE 
+                "padding": "8px 20px",
+                "backgroundColor": "#4CAF50",  # Green
                 "color": "white",
                 "border": "none",
                 "borderRadius": "4px",
                 "cursor": "pointer",
-                "fontSize": "14px",
-                "fontWeight": "bold"
+                "fontSize": "14px"
             }
             # When edit_mode is True, readOnly should be False
             read_only = False
@@ -945,15 +1233,13 @@ def toggle_edit_mode(n_clicks, edit_mode_data):
             # Switching to view mode
             button_text = "Edit"
             button_style = {
-                "marginTop": "15px",
-                "padding": "10px 20px",
+                "padding": "8px 20px",
                 "backgroundColor": "#FF9800",  # Orange
                 "color": "white",
                 "border": "none",
                 "borderRadius": "4px",
                 "cursor": "pointer",
-                "fontSize": "14px",
-                "fontWeight": "bold"
+                "fontSize": "14px"
             }
             # When edit_mode is False, readOnly should be True
             read_only = True
@@ -963,7 +1249,7 @@ def toggle_edit_mode(n_clicks, edit_mode_data):
     return no_update, no_update, no_update, no_update
 
 
-# Callback to update the textarea style based on edit mode
+# Update the textarea style based on edit mode
 @app.callback(
     Output('report-output', 'style'),
     Input('report-output', 'readOnly'),
@@ -972,33 +1258,95 @@ def toggle_edit_mode(n_clicks, edit_mode_data):
 def update_textarea_style(read_only):
     base_style = {
         "width": "100%",
-        "height": "400px",
+        "height": "calc(100vh - 250px)",
         "padding": "20px",
         "backgroundColor": "white",
         "borderRadius": "10px",
-        "boxShadow": "0 4px 8px rgba(0,0,0,0.05)",
         "whiteSpace": "pre-line",
         "fontFamily": "Arial, sans-serif",
         "fontSize": "14px",
         "lineHeight": "1.5",
+        "marginBottom": "15px",
+        "border": "none",
+        "resize": "none",
+        "boxSizing": "border-box"
     }
     
     if read_only:
         # View mode style
         base_style.update({
-            "border": "1px solid #ddd",
             "backgroundColor": "#f9f9f9",
             "cursor": "default"
         })
     else:
         # Edit mode style
         base_style.update({
-            "border": "1px solid #4CAF50",
             "backgroundColor": "white",
-            "cursor": "text"
+            "cursor": "text",
+            "outline": "1px solid #4CAF50" # Use outline instead of border
         })
     
     return base_style
+
+
+# Callback to close the modal
+@app.callback(
+    Output('image-modal', 'style', allow_duplicate=True),
+    Input('close-modal', 'n_clicks'),
+    prevent_initial_call=True
+)
+def close_modal(n_clicks):
+    if n_clicks:
+        return {
+            "display": "none",
+            "position": "fixed",
+            "zIndex": "1000",
+            "left": "0",
+            "top": "0",
+            "width": "100%",
+            "height": "100%",
+            "overflow": "auto",
+            "backgroundColor": "rgba(0,0,0,0.9)",
+            "textAlign": "center"
+        }
+    
+    raise PreventUpdate
+
+
+# Callback to navigate within the modal
+@app.callback(
+    [Output('modal-image', 'src', allow_duplicate=True),
+     Output('current-image-index', 'data', allow_duplicate=True)],
+    [Input('next-image', 'n_clicks'),
+     Input('prev-image', 'n_clicks')],
+    [State('current-image-index', 'data'),
+     State('total-images', 'data'),
+     State('image-store', 'data')],
+    prevent_initial_call=True
+)
+def navigate_modal_images(next_clicks, prev_clicks, current_index, total_images, stored_images):
+    ctx = callback_context
+    
+    if not ctx.triggered:
+        raise PreventUpdate
+    
+    # Get which button was clicked
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Calculate new index
+    new_index = current_index
+    if trigger_id == "next-image" and next_clicks:
+        new_index = (current_index + 1) % total_images
+    elif trigger_id == "prev-image" and prev_clicks:
+        new_index = (current_index - 1) % total_images
+    
+    # Get image for the new index
+    img_list = list(stored_images.items())
+    if 0 <= new_index < len(img_list):
+        image_id, png_encoded = img_list[new_index]
+        return f"data:image/png;base64,{png_encoded}", new_index
+    
+    raise PreventUpdate
 
 
 if __name__ == '__main__':

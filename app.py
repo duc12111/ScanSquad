@@ -73,11 +73,11 @@ app.layout = html.Div(
                 "backgroundColor": "#ffffff",
                 "borderRadius": "10px",
                 "boxShadow": "0 4px 8px rgba(0,0,0,0.05)",
-                "marginTop": "20px"  # Add margin here instead
+                "marginTop": "20px"
             }
         ),
         
-        # Modal component for full-size image viewing
+        # Simplified modal for full-size image viewing
         html.Div(
             id='image-modal',
             style={
@@ -90,105 +90,36 @@ app.layout = html.Div(
                 "height": "100%",
                 "overflow": "auto",
                 "backgroundColor": "rgba(0,0,0,0.9)",
-                "paddingTop": "10px"
+                "textAlign": "center"
             },
             children=[
                 # Close button
-                html.Span(
+                html.Button(
                     "×",
                     id="close-modal",
                     style={
-                        "color": "white",
                         "position": "absolute",
                         "top": "15px",
                         "right": "35px",
                         "fontSize": "40px",
                         "fontWeight": "bold",
-                        "cursor": "pointer",
-                        "zIndex": "1010"
+                        "backgroundColor": "transparent",
+                        "border": "none",
+                        "color": "white",
+                        "cursor": "pointer"
                     }
                 ),
                 
-                # Zoom controls
-                html.Div(
+                # Simple image container
+                html.Img(
+                    id="modal-image",
                     style={
-                        "position": "absolute",
-                        "top": "20px",
-                        "left": "20px",
-                        "zIndex": "1010"
-                    },
-                    children=[
-                        html.Button(
-                            "+",
-                            id="zoom-in",
-                            style={
-                                "fontSize": "24px",
-                                "width": "40px",
-                                "height": "40px",
-                                "backgroundColor": "rgba(0,0,0,0.5)",
-                                "color": "white",
-                                "border": "none",
-                                "borderRadius": "5px",
-                                "cursor": "pointer",
-                                "marginRight": "10px"
-                            }
-                        ),
-                        html.Button(
-                            "−",
-                            id="zoom-out",
-                            style={
-                                "fontSize": "24px",
-                                "width": "40px",
-                                "height": "40px",
-                                "backgroundColor": "rgba(0,0,0,0.5)",
-                                "color": "white",
-                                "border": "none",
-                                "borderRadius": "5px",
-                                "cursor": "pointer",
-                                "marginRight": "10px"
-                            }
-                        ),
-                        html.Button(
-                            "Reset",
-                            id="zoom-reset",
-                            style={
-                                "fontSize": "14px",
-                                "height": "40px",
-                                "backgroundColor": "rgba(0,0,0,0.5)",
-                                "color": "white",
-                                "border": "none",
-                                "borderRadius": "5px",
-                                "cursor": "pointer"
-                            }
-                        )
-                    ]
-                ),
-                
-                # Image container with initial zoom level
-                html.Div(
-                    id="modal-image-container",
-                    style={
-                        "display": "flex",
-                        "justifyContent": "center",
-                        "alignItems": "center",
-                        "width": "100%",
-                        "height": "100%",
-                        "overflow": "auto"
-                    },
-                    children=[
-                        html.Img(
-                            id="modal-image",
-                            style={
-                                "display": "block",
-                                "transformOrigin": "center center",
-                                "cursor": "move"
-                            }
-                        )
-                    ]
-                ),
-                
-                # Store the current zoom level and position
-                dcc.Store(id="image-zoom-level", data={"zoom": 1, "panX": 0, "panY": 0})
+                        "maxWidth": "90%",
+                        "maxHeight": "90%",
+                        "margin": "40px auto",
+                        "display": "block"
+                    }
+                )
             ]
         ),
         
@@ -219,9 +150,6 @@ app.layout = html.Div(
         
         # Store for encoded images
         dcc.Store(id='image-store'),
-        
-        # Store for clicked image id
-        dcc.Store(id='clicked-image'),
         
         # Store for detection data
         dcc.Store(id='detection-store'),
@@ -578,9 +506,6 @@ def process_images(list_of_contents, list_of_names):
             image_id = f"img-{i}"
             stored_images[image_id] = png_encoded
             
-            # Store original filename in metadata for later reference
-            file_metadata = {"original_filename": name, "original_index": original_idx}
-            
             # Get a shortened filename if available
             display_name = name if name else f"Image {original_idx+1}"
             if len(display_name) > 20:
@@ -590,70 +515,62 @@ def process_images(list_of_contents, list_of_names):
             if detection_data:
                 all_detections[image_id] = detection_data
             
-            # Define hover effects directly in style
-            thumbnail_container_style = {
+            # Create a simple button that will trigger the modal
+            img_container = html.Div([
+                html.Button(
+                    id={"type": "image-button", "index": i},
+                    children=[
+                        html.Img(
+                            src=f"data:image/png;base64,{png_encoded}",
+                            style={
+                                "height": "200px",
+                                "width": "auto",
+                                "maxWidth": "100%",
+                                "borderRadius": "8px"
+                            }
+                        )
+                    ],
+                    style={
+                        "background": "none",
+                        "border": "none",
+                        "cursor": "pointer",
+                        "padding": "0",
+                        "width": "100%"
+                    }
+                ),
+                html.Div(
+                    display_name,
+                    style={
+                        "textAlign": "center",
+                        "marginTop": "5px",
+                        "fontSize": "14px",
+                        "color": "#555",
+                        "fontWeight": "bold"
+                    }
+                ),
+                html.Div(
+                    "Click to view full size",
+                    style={
+                        "textAlign": "center",
+                        "fontSize": "12px",
+                        "color": "#777",
+                        "fontStyle": "italic"
+                    }
+                )
+            ],
+            style={
                 "display": "inline-block",
-                "marginRight": "1rem",
-                "marginBottom": "1rem",
-                "verticalAlign": "top",
+                "marginRight": "15px",
+                "marginBottom": "15px",
+                "width": "220px",
                 "padding": "10px",
-                "backgroundColor": "#fff",
+                "backgroundColor": "white",
                 "borderRadius": "10px",
+                "boxShadow": "0 2px 5px rgba(0,0,0,0.1)",
                 "transition": "transform 0.2s, box-shadow 0.2s",
-                "cursor": "pointer",
-                "width": "220px",  # Fixed width to align thumbnails
-            }
+                "verticalAlign": "top"
+            })
             
-            img_container = html.Div(
-                id={"type": "img-container", "index": i, "filename": name if name else ""},
-                className="thumbnail-container",
-                children=[
-                    html.Img(
-                        src=f"data:image/png;base64,{png_encoded}",
-                        style={
-                            "height": "200px",  # Fixed height for thumbnails
-                            "borderRadius": "10px",
-                            "boxShadow": "0 4px 8px rgba(0,0,0,0.1)",
-                            "cursor": "pointer",  # Add pointer cursor to indicate clickable
-                            "display": "block",
-                            "margin": "0 auto"
-                        }
-                    ),
-                    html.Div(
-                        display_name,
-                        style={
-                            "textAlign": "center",
-                            "marginTop": "5px",
-                            "fontSize": "14px",
-                            "color": "#555",
-                            "fontWeight": "bold",
-                            "whiteSpace": "nowrap",
-                            "overflow": "hidden",
-                            "textOverflow": "ellipsis"
-                        }
-                    ),
-                    html.Div(
-                        f"#{i+1}",  # Add sequence number
-                        style={
-                            "textAlign": "center",
-                            "fontSize": "12px",
-                            "color": "#888",
-                            "marginTop": "2px"
-                        }
-                    ),
-                    html.Div(
-                        "Click to enlarge",
-                        style={
-                            "textAlign": "center",
-                            "fontSize": "12px",
-                            "color": "#777",
-                            "fontStyle": "italic"
-                        }
-                    )
-                ],
-                style=thumbnail_container_style,
-            )
-            # Add container to the list
             images.append(img_container)
         
         # Generate a unique report ID
@@ -689,6 +606,66 @@ def process_images(list_of_contents, list_of_names):
     return no_update, no_update, no_update, no_update, no_update, True
 
 
+# Simple callback to show modal when an image button is clicked
+@app.callback(
+    [Output('image-modal', 'style'),
+     Output('modal-image', 'src')],
+    [Input({"type": "image-button", "index": ALL}, 'n_clicks')],
+    [State('image-store', 'data')],
+    prevent_initial_call=True
+)
+def show_modal(n_clicks, stored_images):
+    ctx = callback_context
+    
+    if not ctx.triggered or not any(n_clicks):
+        raise PreventUpdate
+    
+    # Get index of clicked image
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    index = json.loads(trigger_id)['index']
+    image_id = f"img-{index}"
+    
+    if image_id in stored_images:
+        return {
+            "display": "block",
+            "position": "fixed",
+            "zIndex": "1000",
+            "left": "0",
+            "top": "0",
+            "width": "100%",
+            "height": "100%",
+            "overflow": "auto",
+            "backgroundColor": "rgba(0,0,0,0.9)",
+            "textAlign": "center"
+        }, f"data:image/png;base64,{stored_images[image_id]}"
+    
+    raise PreventUpdate
+
+
+# Callback to close the modal
+@app.callback(
+    Output('image-modal', 'style', allow_duplicate=True),
+    Input('close-modal', 'n_clicks'),
+    prevent_initial_call=True
+)
+def close_modal(n_clicks):
+    if n_clicks:
+        return {
+            "display": "none",
+            "position": "fixed",
+            "zIndex": "1000",
+            "left": "0",
+            "top": "0",
+            "width": "100%",
+            "height": "100%",
+            "overflow": "auto",
+            "backgroundColor": "rgba(0,0,0,0.9)",
+            "textAlign": "center"
+        }
+    
+    raise PreventUpdate
+
+
 @app.callback(
     [Output('report-output', 'children', allow_duplicate=True),
      Output('report-interval', 'disabled', allow_duplicate=True)],
@@ -718,165 +695,6 @@ def update_report_status(n_intervals, report_id):
     # Still processing, continue polling
     return no_update, no_update
 
-
-@app.callback(
-    Output('clicked-image', 'data'),
-    [Input({"type": "img-container", "index": ALL}, 'n_clicks')],
-    prevent_initial_call=True
-)
-def store_clicked_image(n_clicks):
-    ctx = callback_context
-    if not ctx.triggered:
-        raise PreventUpdate
-    
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    if triggered_id:
-        # Extract the index from the triggered id
-        clicked_id = json.loads(triggered_id)
-        return f"img-{clicked_id['index']}"
-    
-    raise PreventUpdate
-
-
-@app.callback(
-    [Output('image-modal', 'style'),
-     Output('modal-image', 'src'),
-     Output('modal-image', 'style'),
-     Output('image-zoom-level', 'data', allow_duplicate=True)],
-    [Input('clicked-image', 'data'), 
-     Input('close-modal', 'n_clicks')],
-    [State('image-store', 'data')],
-    prevent_initial_call=True
-)
-def update_modal(clicked_image, close_clicks, stored_images):
-    ctx = callback_context
-    if not ctx.triggered:
-        raise PreventUpdate
-    
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    # Close modal if close button clicked
-    if trigger_id == 'close-modal':
-        return {
-            "display": "none",
-            "position": "fixed",
-            "zIndex": "1000",
-            "left": "0",
-            "top": "0",
-            "width": "100%",
-            "height": "100%",
-            "overflow": "auto",
-            "backgroundColor": "rgba(0,0,0,0.9)",
-            "paddingTop": "10px"
-        }, no_update, no_update, {"zoom": 1, "panX": 0, "panY": 0}
-    
-    # Show modal with clicked image
-    if trigger_id == 'clicked-image' and clicked_image:
-        if stored_images and clicked_image in stored_images:
-            # Reset zoom level when opening a new image
-            return {
-                "display": "block",
-                "position": "fixed",
-                "zIndex": "1000",
-                "left": "0",
-                "top": "0",
-                "width": "100%",
-                "height": "100%",
-                "overflow": "auto",
-                "backgroundColor": "rgba(0,0,0,0.9)",
-                "paddingTop": "10px"
-            }, f"data:image/png;base64,{stored_images[clicked_image]}", {
-                "display": "block",
-                "transformOrigin": "center center",
-                "cursor": "move",
-                "transform": "scale(1) translate(0px, 0px)"
-            }, {"zoom": 1, "panX": 0, "panY": 0}
-    
-    raise PreventUpdate
-
-
-# Add JavaScript for image zooming and panning
-app.clientside_callback(
-    """
-    function(n_zoom_in, n_zoom_out, n_zoom_reset, current_zoom_data) {
-        const ctx = dash_clientside.callback_context;
-        if (!ctx.triggered) return current_zoom_data;
-        
-        const triggered_id = ctx.triggered[0].prop_id.split('.')[0];
-        let zoom = current_zoom_data.zoom || 1;
-        let panX = current_zoom_data.panX || 0;
-        let panY = current_zoom_data.panY || 0;
-        
-        if (triggered_id === 'zoom-in') {
-            zoom = Math.min(5, zoom + 0.25); // limit max zoom to 5x
-        } else if (triggered_id === 'zoom-out') {
-            zoom = Math.max(0.5, zoom - 0.25); // limit min zoom to 0.5x
-        } else if (triggered_id === 'zoom-reset') {
-            zoom = 1;
-            panX = 0;
-            panY = 0;
-        }
-        
-        // Apply the zoom and pan to the image
-        const img = document.getElementById('modal-image');
-        if (img) {
-            img.style.transform = `scale(${zoom}) translate(${panX}px, ${panY}px)`;
-        }
-        
-        return {zoom, panX, panY};
-    }
-    """,
-    Output('image-zoom-level', 'data'),
-    [Input('zoom-in', 'n_clicks'),
-     Input('zoom-out', 'n_clicks'),
-     Input('zoom-reset', 'n_clicks')],
-    [State('image-zoom-level', 'data')],
-    prevent_initial_call=True
-)
-
-# Add JavaScript to handle image dragging (panning)
-app.clientside_callback(
-    """
-    function(n_open_modal) {
-        if (!n_open_modal) return null;
-        
-        const img = document.getElementById('modal-image');
-        const container = document.getElementById('modal-image-container');
-        
-        if (!img || !container) return null;
-        
-        let isDragging = false;
-        let startX, startY;
-        let currentX = 0, currentY = 0;
-        
-        img.addEventListener('mousedown', function(e) {
-            isDragging = true;
-            startX = e.clientX - currentX;
-            startY = e.clientY - currentY;
-            img.style.cursor = 'grabbing';
-            e.preventDefault();
-        });
-        
-        document.addEventListener('mousemove', function(e) {
-            if (!isDragging) return;
-            currentX = e.clientX - startX;
-            currentY = e.clientY - startY;
-            const zoom = parseFloat(img.style.transform.match(/scale\\(([^)]+)\\)/)[1]) || 1;
-            img.style.transform = `scale(${zoom}) translate(${currentX/zoom}px, ${currentY/zoom}px)`;
-        });
-        
-        document.addEventListener('mouseup', function() {
-            isDragging = false;
-            img.style.cursor = 'move';
-        });
-        
-        return null;
-    }
-    """,
-    Output('modal-image-container', 'children', allow_duplicate=True),
-    [Input('modal-image', 'src')],
-    prevent_initial_call=True
-)
 
 if __name__ == '__main__':
     try:

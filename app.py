@@ -20,6 +20,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langchain_community.callbacks.manager import get_openai_callback
 import json
+import tempfile
+import subprocess
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet
@@ -523,7 +525,7 @@ def dicom_to_png_bytes(dicom_bytes, conf_threshold=0.5):
         return None, None
 
 
-def generate_mri_report(report_id, stored_images, all_detections, session_memory=None, model_name="gpt-4o"):
+def generate_mri_report(report_id, stored_images, all_detections, session_memory=None, model_name="o4-mini"):
     """
     Generate MRI report from the uploaded DICOM images
     """
@@ -612,16 +614,26 @@ def generate_mri_report(report_id, stored_images, all_detections, session_memory
                     detection_description += f"- Detection in image {img_id}: In file {source_file}, bounding box coordinates: ({x1}, {y1}, {x2}, {y2}){physical_size_info}, confidence: {confidence:.2f}, class: {cls}\n"
 
         prompt_prefix = (
-            f"You are an assistant that helps generate MRI report templates based on visual observations of pre-processed MRI scans. Today is {datetime.now().strftime('%d.%m.%Y')}.    \n"
-            f"I'm providing you with {len(image_contents)} MRI scan images that include bounding boxes from a YOLO model highlighting areas of interest, which may indicate potential abnormalities.\n"
-            f"{detection_description}\n"
-            "Generate a detailed report template started with the following sections: Method, Findings, Intracranial vessels supplying the brain, Diagnosis, and a closing signature ('Yours sincerely, Your Dr. GPT'), based on the visual description. Ensure proper line spacing between paragraphs as shown in the examples.\n"
-            "Note: This is not a medical diagnosis; you are only assisting in creating a report template based on visual observations. \n\n"
-            "Example 1 (Negative Case):\n"
-            f"{negative_report}\n\n"
-            "Example 2 (Positive Case):\n"
-            f"{positive_report}\n\n"
-        )
+                    f"You are an assistant that generates professional MRI report templates based on visual observations of pre-processed MRI scans. Today is {datetime.now().strftime('%d.%m.%Y')}.    \n\n"
+                    "The provided MRI scan images include bounding boxes from a YOLO model highlighting areas of interest, which may indicate potential abnormalities.\n\n"
+                    f"{detection_description}\n\n"
+                    "**Instructions:**\n"
+                    "- First, describe the visual features of the MRI scans and the bounding boxes (e.g., location, size, shape, contrast, intensity patterns). Include your confidence level in these observations (e.g., high, moderate, low confidence).\n"
+                    "- Then, generate a detailed professional report in Markdown format (.md), strictly following the structure shown in the examples.\n"
+                    "- The report must start with a centered title heading: **MRI Report**.\n"
+                    "- Use the following sections, and keep the **same order and headings**: **Method**, **Findings**, **Intracranial vessels supplying the brain**, **Diagnosis**, and a closing signature ('Yours sincerely, Your Dr. GPT').\n"
+                    "- Maintain proper paragraph spacing and clear formatting as demonstrated.\n"
+                    "- **Do not** mention '.md template' or discuss the formatting or instructions in the report.\n"
+                    "- **Do not** invent any sections, diagnoses, or findings beyond what is visually described or logically inferred from the bounding boxes.\n"
+                    "- If there are no abnormalities, clearly state that findings are inconspicuous.\n"
+                    "- Focus on being clear, concise, and professional in language.\n\n"
+                    "Below are two example reports for reference:\n\n"
+                    "Example 1 (Negative Case):\n"
+                    f"{negative_report}\n\n"
+                    "Example 2 (Positive Case):\n"
+                    f"{positive_report}\n\n"
+                )
+
 
         # Add previous memory context
         if session_memory:
@@ -1096,6 +1108,42 @@ def reset_report_textarea(contents):
         return "Analyzing images... Please wait for the report to be generated.", True
     return no_update, no_update
 
+# Function to convert Markdown to PDF using Pandoc and XeLaTeX, then return as base64
+def markdown_to_pdf_base64(markdown_content):
+    # Create temporary files for Markdown and PDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.md') as md_file, \
+         tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as pdf_file:
+        # Write Markdown content to the temporary file
+        md_file.write(markdown_content.encode('utf-8'))
+        md_file.close()
+
+        # Run Pandoc to convert Markdown to PDF using XeLaTeX
+        try:
+            subprocess.run([
+                'pandoc', md_file.name,
+                '-o', pdf_file.name,
+                '--pdf-engine=xelatex',
+                '-V', 'geometry:margin=1in',
+                '-V', 'mainfont=Arial'
+            ], check=True)
+
+            # Read the generated PDF
+            with open(pdf_file.name, 'rb') as f:
+                pdf_bytes = f.read()
+
+            # Encode the PDF to base64
+            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+
+        except subprocess.CalledProcessError as e:
+            raise Exception(f"Pandoc failed to generate PDF: {str(e)}")
+        finally:
+            # Clean up temporary files
+            os.remove(md_file.name)
+            if os.path.exists(pdf_file.name):
+                os.remove(pdf_file.name)
+
+    return pdf_base64
+
 
 # Callback for Export PDF button
 @app.callback(
@@ -1106,107 +1154,24 @@ def reset_report_textarea(contents):
 )
 def export_pdf(n_clicks, report_content):
     if n_clicks and report_content:
-        # Create a PDF file with the report content
-        buffer = io.BytesIO()
-        
-        # Create PDF document
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
-        styles = getSampleStyleSheet()
-        
-        # Add elements to build PDF
-        elements = []
-        
-        # Add title
-        title_style = styles["Title"]
-        elements.append(Paragraph("Medical Report", title_style))
-        
-        # Add date
-        date_style = styles["Normal"]
-        date_style.alignment = 1  # Center alignment
-        elements.append(Paragraph(f"Generated on {datetime.now().strftime('%d.%m.%Y')}", date_style))
-        
-        # Add a spacer
-        elements.append(Paragraph("<br/><br/>", styles["Normal"]))
-        
-        # Process the report content by sections based on markdown formatting
-        current_section = None
-        section_content = []
-        
-        for line in report_content.split('\n'):
-            # Process headings (lines that start with # or ##)
-            if line.startswith('# '):
-                # If we have content from a previous section, add it first
-                if current_section and section_content:
-                    header_style = styles["Heading2"]
-                    elements.append(Paragraph(current_section, header_style))
-                    
-                    # Add the content as paragraphs
-                    for content_line in section_content:
-                        elements.append(Paragraph(content_line, styles["Normal"]))
-                    
-                    # Add spacing after section
-                    elements.append(Paragraph("<br/>", styles["Normal"]))
-                
-                # Start a new main section
-                current_section = line[2:].strip()  # Remove the # and spaces
-                section_content = []
-                
-            elif line.startswith('## '):
-                # If we have content from a previous section, add it first
-                if current_section and section_content:
-                    header_style = styles["Heading2"]
-                    elements.append(Paragraph(current_section, header_style))
-                    
-                    # Add the content as paragraphs
-                    for content_line in section_content:
-                        elements.append(Paragraph(content_line, styles["Normal"]))
-                    
-                    # Add spacing after section
-                    elements.append(Paragraph("<br/>", styles["Normal"]))
-                
-                # Start a new subsection
-                current_section = line[3:].strip()  # Remove the ## and spaces
-                section_content = []
-                
-            elif line.strip() == "":
-                # Empty line - add spacing if we have content
-                if section_content:
-                    section_content.append("")
-            else:
-                # Regular text line - add to current section content
-                section_content.append(line)
-        
-        # Add the last section if there is one
-        if current_section and section_content:
-            header_style = styles["Heading2"]
-            elements.append(Paragraph(current_section, header_style))
+        try:
+            # Step 1: Convert Markdown content to PDF and get the base64 data
+            pdf_base64 = markdown_to_pdf_base64(report_content)
             
-            # Add the content as paragraphs
-            for content_line in section_content:
-                if content_line:  # Skip empty strings
-                    elements.append(Paragraph(content_line, styles["Normal"]))
-        
-        # Build the PDF
-        doc.build(elements)
-        
-        # Get the value from the BytesIO buffer and encode as base64
-        pdf_data = buffer.getvalue()
-        buffer.close()
-        
-        # Encode the PDF as base64 for Dash Download component
-        encoded_pdf = base64.b64encode(pdf_data).decode('utf-8')
-        
-        # Create the download data dictionary with base64 content
-        filename = f"Medical_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        
-        return {
-            "content": encoded_pdf,
-            "filename": filename,
-            "type": "application/pdf",
-            "base64": True
-        }
-    
-    return no_update
+            # Step 2: Create download href
+            download_href = f"data:application/pdf;base64,{pdf_base64}"
+
+            filename = f"MRI_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            return {
+                "content": pdf_base64,
+                "filename": filename,
+                "type": "application/pdf",
+                "base64": True
+            }
+
+        except Exception as e:
+            print(f"Error generating PDF: {e}")
+            return no_update
 
 
 # Callback to toggle edit mode

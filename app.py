@@ -59,6 +59,7 @@ app.layout = html.Div(
                        style={"textAlign": "center", "color": "#666", "marginBottom": "30px"}),
                 
                 html.Div(
+                    className="upload-area",
                     style={
                         "border": "2px dashed #ccc",
                         "borderRadius": "10px",
@@ -69,7 +70,7 @@ app.layout = html.Div(
                     children=[
                         html.Img(src="/assets/upload_icon.png", style={"width": "50px", "height": "50px", "opacity": "0.6", "marginBottom": "20px"}),
                         html.Div("Drop your DICOM folder here", style={"fontSize": "18px", "fontWeight": "bold", "marginBottom": "10px"}),
-                        html.Div("or click to browse your files", style={"fontSize": "14px", "color": "#666", "marginBottom": "20px"}),
+                        html.Div("or click to browse files", style={"fontSize": "14px", "color": "#666", "marginBottom": "20px"}),
                         dcc.Upload(
                             id='upload-dicom-folder',
                             children=html.Button("Select Folder",
@@ -86,7 +87,8 @@ app.layout = html.Div(
                                 "width": "100%",
                                 "textAlign": "center",
                             },
-                            multiple=True
+                            multiple=True,
+                            accept='.dcm'
                         ),
                     ]
                 ),
@@ -767,14 +769,30 @@ def process_images(list_of_contents, list_of_names):
         # Create a list for processing that includes filenames for sorting
         image_data = []
         
+        # Add a loading message
+        loading_message = "Analyzing images...\n\nPlease wait while our AI analyzes your images. This may take up to a minute."
+        
+        # Process only DICOM files from the uploaded content
         for i, (content, name) in enumerate(zip(list_of_contents, list_of_names)):
-            content_type, content_string = content.split(',')
-            dicom_bytes = base64.b64decode(content_string)
-            png_encoded, detection_data = dicom_to_png_bytes(dicom_bytes)
-            
-            if png_encoded:
-                # Store the tuple with all needed data for sorting and processing
-                image_data.append((i, name, content, png_encoded, detection_data))
+            # Check if the file has a DICOM extension (.dcm)
+            if name.lower().endswith('.dcm'):
+                try:
+                    content_type, content_string = content.split(',')
+                    dicom_bytes = base64.b64decode(content_string)
+                    png_encoded, detection_data = dicom_to_png_bytes(dicom_bytes)
+                    
+                    if png_encoded:
+                        # Store the tuple with all needed data for sorting and processing
+                        image_data.append((i, name, content, png_encoded, detection_data))
+                except Exception as e:
+                    print(f"Error processing file {name}: {str(e)}")
+        
+        # Check if we found any valid DICOM files
+        if not image_data:
+            return (
+                html.Div("No valid DICOM files found. Please upload files with .dcm extension."),
+                {}, {}, None, "No valid DICOM files found. Please upload files with .dcm extension.", True, True
+            )
         
         # Sort the image data by filename
         image_data.sort(key=lambda x: x[1].lower() if x[1] else "")
@@ -847,9 +865,7 @@ def process_images(list_of_contents, list_of_names):
             "all_detections": all_detections
         })
         
-        # Loading message
-        loading_message = "Analyzing images...\n\nPlease wait while our AI analyzes your images. This may take up to a minute."
-        
+        # Show loading message while report generates
         return images, stored_images, all_detections, report_id, loading_message, False, True  # True = readOnly during processing
     
     return no_update, no_update, no_update, no_update, no_update, True, no_update
@@ -1347,6 +1363,185 @@ def navigate_modal_images(next_clicks, prev_clicks, current_index, total_images,
         return f"data:image/png;base64,{png_encoded}", new_index
     
     raise PreventUpdate
+
+
+# Add custom JavaScript for folder drag and drop support
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            .upload-area {
+                position: relative;
+            }
+            
+            .upload-area.drag-active {
+                background-color: #f0f9ff !important;
+                border-color: #007bff !important;
+            }
+            
+            @keyframes dot-animation {
+                0%, 20% {
+                    opacity: 0.3;
+                }
+                50% {
+                    opacity: 1;
+                }
+                80%, 100% {
+                    opacity: 0.3;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+            <script>
+                // Custom folder upload handling
+                document.addEventListener('DOMContentLoaded', function() {
+                    // Enable folder selection on the file input
+                    const enableFolderSelection = () => {
+                        const fileInputs = document.querySelectorAll('input[type=file]');
+                        if (fileInputs.length === 0) {
+                            // If elements not found yet, retry after a short delay
+                            setTimeout(enableFolderSelection, 500);
+                            return;
+                        }
+                        
+                        // Apply to all file inputs (typically just one)
+                        fileInputs.forEach(input => {
+                            // Set attributes for directory selection
+                            input.setAttribute('webkitdirectory', '');
+                            input.setAttribute('directory', '');
+                            input.setAttribute('mozdirectory', '');
+                        });
+                    };
+                    
+                    // Setup drag and drop functionality
+                    const setupDragDrop = () => {
+                        const uploadArea = document.querySelector('.upload-area');
+                        if (!uploadArea) {
+                            // If element not found yet, retry after a short delay
+                            setTimeout(setupDragDrop, 500);
+                            return;
+                        }
+                        
+                        uploadArea.addEventListener('dragenter', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.classList.add('drag-active');
+                        });
+                        
+                        uploadArea.addEventListener('dragover', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        });
+                        
+                        uploadArea.addEventListener('dragleave', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.classList.remove('drag-active');
+                        });
+                        
+                        uploadArea.addEventListener('drop', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.classList.remove('drag-active');
+                            
+                            // Process all files from the drop, including folder contents
+                            handleDroppedItems(e.dataTransfer.items);
+                        });
+                    };
+                    
+                    // Start setup
+                    enableFolderSelection();
+                    setupDragDrop();
+                    
+                    // Process dropped items recursively to handle folders
+                    function handleDroppedItems(items) {
+                        const allFiles = [];
+                        let pendingFiles = 0;
+                        
+                        // Process folder entries recursively
+                        function traverseFileTree(item, path) {
+                            pendingFiles++;
+                            
+                            if (item.isFile) {
+                                // Get file
+                                item.file(function(file) {
+                                    // Only include .dcm files
+                                    if (file.name.toLowerCase().endsWith('.dcm')) {
+                                        allFiles.push(file);
+                                    }
+                                    pendingFiles--;
+                                    if (pendingFiles === 0) {
+                                        processFiles(allFiles);
+                                    }
+                                });
+                            } else if (item.isDirectory) {
+                                // Get folder contents
+                                const dirReader = item.createReader();
+                                dirReader.readEntries(function(entries) {
+                                    for (let i = 0; i < entries.length; i++) {
+                                        traverseFileTree(entries[i], path + item.name + "/");
+                                    }
+                                    pendingFiles--;
+                                    if (pendingFiles === 0) {
+                                        processFiles(allFiles);
+                                    }
+                                });
+                            }
+                        }
+                        
+                        // Start processing all items
+                        for (let i = 0; i < items.length; i++) {
+                            const item = items[i].webkitGetAsEntry();
+                            if (item) {
+                                traverseFileTree(item, "");
+                            }
+                        }
+                        
+                        // In case there are no valid entries
+                        if (pendingFiles === 0) {
+                            processFiles(allFiles);
+                        }
+                    }
+                    
+                    // Trigger the upload component with collected files
+                    function processFiles(files) {
+                        if (files.length === 0) {
+                            alert('No DICOM (.dcm) files found in the dropped folder');
+                            return;
+                        }
+                        
+                        // Create a file list to add to the upload component
+                        const dataTransfer = new DataTransfer();
+                        files.forEach(file => dataTransfer.items.add(file));
+                        
+                        // Find the upload input
+                        const uploadInput = document.querySelector('input[type=file]');
+                        if (uploadInput) {
+                            // Set files and trigger change
+                            uploadInput.files = dataTransfer.files;
+                            
+                            // Create and dispatch change event
+                            const event = new Event('change', { bubbles: true });
+                            uploadInput.dispatchEvent(event);
+                        }
+                    }
+                });
+            </script>
+        </footer>
+    </body>
+</html>
+'''
 
 
 if __name__ == '__main__':

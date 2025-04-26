@@ -401,29 +401,29 @@ app.layout = html.Div(
 model = YOLO("yolo11n-tumor-luca.pt")
 
 
-def _draw_bounding_boxes(img, x1, y1, x2, y2):
+def _draw_bounding_boxes(img, x1, y1, x2, y2, conf):
     """
     Draw bounding boxes on image and add detection to all_detections
     """
     # Calculate the center of the original bounding box
     center_x = (x1 + x2) / 2
     center_y = (y1 + y2) / 2
-    
+
     # Calculate the width and height of the original bounding box
     width = x2 - x1
     height = y2 - y1
-    
+
     # Enlarge the width and height by 25%
-    enlarged_width = width * 1.25
-    enlarged_height = height * 1.25
-    
+    enlarged_width = width * 2
+    enlarged_height = height * 2
+
     # Calculate the new coordinates based on the enlarged dimensions
     # while keeping the same center point
     new_x1 = int(center_x - enlarged_width / 2)
     new_y1 = int(center_y - enlarged_height / 2)
     new_x2 = int(center_x + enlarged_width / 2)
     new_y2 = int(center_y + enlarged_height / 2)
-    
+
     # Ensure the coordinates stay within the image boundaries
     height, width = img.shape[:2]
     new_x1 = max(0, new_x1)
@@ -432,26 +432,22 @@ def _draw_bounding_boxes(img, x1, y1, x2, y2):
     new_y2 = min(height - 1, new_y2)
 
     # Draw rectangle - thicker bright green line
-    GREEN = (0, 255, 0)  # BGR format - bright green
-    cv2.rectangle(img, (new_x1, new_y1), (new_x2, new_y2), GREEN, 3)
+    color = (0, 255, 0)  # BGR format - bright green  # 052aff
+    cv2.rectangle(img, (new_x1, new_y1), (new_x2, new_y2), color, 8)
 
     # Add ID with smaller text and better positioning
-    label = f"Abnormality"
+    label = f"Abnormality {conf:.2f}"
 
     # Calculate text size to create a background - reduced font size to 1.0 and thickness to 2
-    font_size = 1.0
-    thickness = 2
+    font_size = 2.0
+    thickness = 4
     text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_size, thickness)[0]
 
     # Draw a filled rectangle as background for text
-    cv2.rectangle(img,
-                  (new_x1, new_y1 - text_size[1] - 5),
-                  (new_x1 + text_size[0], new_y1),
-                  (0, 0, 0),
-                  -1)  # -1 means filled
+    # cv2.rectangle(img, (new_x1, new_y1 - text_size[1] - 5), (new_x1 + text_size[0], new_y1), (0, 0, 0), -1)
 
     # Draw text with bright green - using smaller font size and thickness
-    cv2.putText(img, label, (new_x1, new_y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, font_size, GREEN, thickness)
+    cv2.putText(img, label, (new_x1 - 200, new_y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, font_size, color, thickness)
 
 
 def dicom_to_png_bytes(dicom_bytes, conf_threshold=0.5):
@@ -497,8 +493,8 @@ def dicom_to_png_bytes(dicom_bytes, conf_threshold=0.5):
                         height = y2 - y1
                         
                         # Enlarge the width and height by 25% for physical size calculation
-                        enlarged_width = width * 1.25
-                        enlarged_height = height * 1.25
+                        enlarged_width = width * 2
+                        enlarged_height = height * 2
                         
                         width_mm = enlarged_width * float(pixel_spacing[0])
                         height_mm = enlarged_height * float(pixel_spacing[1])
@@ -514,7 +510,7 @@ def dicom_to_png_bytes(dicom_bytes, conf_threshold=0.5):
                         "source": {"file": "current_image"}
                     }
 
-                    _draw_bounding_boxes(pixel_array, x1, y1, x2, y2)
+                    _draw_bounding_boxes(pixel_array, x1, y1, x2, y2, conf)
 
         image = Image.fromarray(pixel_array.astype(np.uint8)).convert("RGB")
 

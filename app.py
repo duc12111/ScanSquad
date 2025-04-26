@@ -197,18 +197,34 @@ app.layout = html.Div(
                     "fontFamily": "Arial, sans-serif",
                     "fontSize": "14px",
                     "lineHeight": "1.5",
-                    "border": "1px solid #ddd"
+                    "border": "1px solid #4CAF50",
+                    "cursor": "text"
                 },
                 value="Upload images to generate a report",
                 readOnly=False
             ),
             html.Div([
                 html.Button(
-                    "Save Report",
-                    id="save-report",
+                    "Export PDF",
+                    id="export-pdf",
                     style={
                         "marginTop": "15px",
                         "marginRight": "10px",
+                        "padding": "10px 20px",
+                        "backgroundColor": "#2196F3",
+                        "color": "white",
+                        "border": "none",
+                        "borderRadius": "4px",
+                        "cursor": "pointer",
+                        "fontSize": "14px",
+                        "fontWeight": "bold"
+                    }
+                ),
+                html.Button(
+                    "Save",
+                    id="toggle-edit-mode",
+                    style={
+                        "marginTop": "15px",
                         "padding": "10px 20px",
                         "backgroundColor": "#4CAF50",
                         "color": "white",
@@ -219,21 +235,8 @@ app.layout = html.Div(
                         "fontWeight": "bold"
                     }
                 ),
-                html.Button(
-                    "Export PDF",
-                    id="export-pdf",
-                    style={
-                        "marginTop": "15px",
-                        "padding": "10px 20px",
-                        "backgroundColor": "#2196F3",
-                        "color": "white",
-                        "border": "none",
-                        "borderRadius": "4px",
-                        "cursor": "pointer",
-                        "fontSize": "14px",
-                        "fontWeight": "bold"
-                    }
-                )
+                # Store to track editing mode state
+                dcc.Store(id="edit-mode-store", data={"edit_mode": True})
             ], style={"display": "flex", "flexDirection": "row"}),
             
             # Download component for PDF export
@@ -576,7 +579,8 @@ worker_thread.start()
      Output('detection-store', 'data'),
      Output('report-id', 'data'),
      Output('report-output', 'value', allow_duplicate=True),
-     Output('report-interval', 'disabled')],
+     Output('report-interval', 'disabled'),
+     Output('report-output', 'readOnly', allow_duplicate=True)],
     Input('upload-dicom-folder', 'contents'),
     State('upload-dicom-folder', 'filename'),
     prevent_initial_call=True
@@ -687,9 +691,9 @@ def process_images(list_of_contents, list_of_names):
         # Loading message
         loading_message = "Analyzing images...\n\nPlease wait while our AI analyzes your images. This may take up to a minute."
         
-        return images, stored_images, all_detections, report_id, loading_message, False
+        return images, stored_images, all_detections, report_id, loading_message, False, True  # True = readOnly during processing
     
-    return no_update, no_update, no_update, no_update, no_update, True
+    return no_update, no_update, no_update, no_update, no_update, True, no_update
 
 
 # Simple callback to show modal when an image button is clicked
@@ -795,57 +799,46 @@ def close_modal(n_clicks):
 
 @app.callback(
     [Output('report-output', 'value', allow_duplicate=True),
-     Output('report-interval', 'disabled', allow_duplicate=True)],
+     Output('report-interval', 'disabled', allow_duplicate=True),
+     Output('report-output', 'readOnly', allow_duplicate=True)],
     Input('report-interval', 'n_intervals'),
-    State('report-id', 'data'),
+    [State('report-id', 'data'),
+     State('edit-mode-store', 'data')],
     prevent_initial_call=True
 )
-def update_report_status(n_intervals, report_id):
+def update_report_status(n_intervals, report_id, edit_mode_data):
     if not report_id or report_id not in report_results:
-        return no_update, no_update
+        return no_update, no_update, no_update
     
     result = report_results[report_id]
+    current_edit_mode = edit_mode_data.get('edit_mode', True)
+    read_only = not current_edit_mode  # If in view mode, set readOnly to True
     
     if result.get("status") == "complete":
         # Report is complete, display it
         report_text = result.get("report", "No report generated")
-        return report_text, True
+        return report_text, True, read_only
     
     elif result.get("status") == "error":
         # There was an error, display error message
         error_message = result.get("message", "An error occurred while generating the report")
-        return f"❌ Error\n\n{error_message}", True
+        return f"❌ Error\n\n{error_message}", True, read_only
     
-    # Still processing, continue polling
-    return no_update, no_update
+    # Still processing, continue polling (and keep readonly during processing)
+    return no_update, no_update, True
 
 
 # Callback to update the initial report textarea when files are uploaded
 @app.callback(
-    Output('report-output', 'value'),
+    [Output('report-output', 'value'),
+     Output('report-output', 'readOnly')],
     Input('upload-dicom-folder', 'contents'),
     prevent_initial_call=True
 )
 def reset_report_textarea(contents):
     if contents:
-        return "Analyzing images... Please wait for the report to be generated."
-    return no_update
-
-
-# Callback for Save Report button
-@app.callback(
-    Output('report-output', 'value', allow_duplicate=True),
-    Input('save-report', 'n_clicks'),
-    State('report-output', 'value'),
-    prevent_initial_call=True
-)
-def save_report(n_clicks, report_content):
-    if n_clicks and report_content:
-        # For now, we just acknowledge the save action in the UI
-        # In a real application, you might save to a database or file
-        saved_report = report_content + "\n\n[Report saved at " + datetime.now().strftime("%d.%m.%Y %H:%M:%S") + "]"
-        return saved_report
-    return no_update
+        return "Analyzing images... Please wait for the report to be generated.", True
+    return no_update, no_update
 
 
 # Callback for Export PDF button
@@ -913,6 +906,99 @@ def export_pdf(n_clicks, report_content):
         }
     
     return no_update
+
+
+# Callback to toggle edit mode
+@app.callback(
+    [Output('report-output', 'readOnly', allow_duplicate=True),
+     Output('toggle-edit-mode', 'children'),
+     Output('toggle-edit-mode', 'style'),
+     Output('edit-mode-store', 'data')],
+    Input('toggle-edit-mode', 'n_clicks'),
+    State('edit-mode-store', 'data'),
+    prevent_initial_call=True
+)
+def toggle_edit_mode(n_clicks, edit_mode_data):
+    if n_clicks:
+        # Toggle the edit mode
+        current_edit_mode = edit_mode_data.get('edit_mode', True)
+        new_edit_mode = not current_edit_mode
+        
+        # Update button text and style based on new mode
+        if new_edit_mode:
+            # Switching to edit mode
+            button_text = "Save"
+            button_style = {
+                "marginTop": "15px",
+                "padding": "10px 20px",
+                "backgroundColor": "#4CAF50", # BLUE 
+                "color": "white",
+                "border": "none",
+                "borderRadius": "4px",
+                "cursor": "pointer",
+                "fontSize": "14px",
+                "fontWeight": "bold"
+            }
+            # When edit_mode is True, readOnly should be False
+            read_only = False
+        else:
+            # Switching to view mode
+            button_text = "Edit"
+            button_style = {
+                "marginTop": "15px",
+                "padding": "10px 20px",
+                "backgroundColor": "#FF9800",  # Orange
+                "color": "white",
+                "border": "none",
+                "borderRadius": "4px",
+                "cursor": "pointer",
+                "fontSize": "14px",
+                "fontWeight": "bold"
+            }
+            # When edit_mode is False, readOnly should be True
+            read_only = True
+        
+        return read_only, button_text, button_style, {"edit_mode": new_edit_mode}
+    
+    return no_update, no_update, no_update, no_update
+
+
+# Callback to update the textarea style based on edit mode
+@app.callback(
+    Output('report-output', 'style'),
+    Input('report-output', 'readOnly'),
+    prevent_initial_call=True
+)
+def update_textarea_style(read_only):
+    base_style = {
+        "width": "100%",
+        "height": "400px",
+        "padding": "20px",
+        "backgroundColor": "white",
+        "borderRadius": "10px",
+        "boxShadow": "0 4px 8px rgba(0,0,0,0.05)",
+        "whiteSpace": "pre-line",
+        "fontFamily": "Arial, sans-serif",
+        "fontSize": "14px",
+        "lineHeight": "1.5",
+    }
+    
+    if read_only:
+        # View mode style
+        base_style.update({
+            "border": "1px solid #ddd",
+            "backgroundColor": "#f9f9f9",
+            "cursor": "default"
+        })
+    else:
+        # Edit mode style
+        base_style.update({
+            "border": "1px solid #4CAF50",
+            "backgroundColor": "white",
+            "cursor": "text"
+        })
+    
+    return base_style
 
 
 if __name__ == '__main__':

@@ -20,6 +20,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langchain_community.callbacks.manager import get_openai_callback
 import json
+import subprocess
+import tempfile
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet
@@ -481,7 +483,7 @@ def generate_mri_report(report_id, stored_images, all_detections, session_memory
             f"I'm providing you with {len(image_contents)} MRI scan images that include bounding boxes from a YOLO model highlighting areas of interest, which may indicate potential abnormalities.\n"
             f"{detection_description}\n"
             "First, describe the visual features of the MRI scans and the bounding boxes (e.g., location, size, shape, contrast, intensity patterns). Include your confidence level in these observations (e.g., high, moderate, low confidence).\n"
-            "Then, generate a detailed report template with the following sections: Method, Findings, Intracranial vessels supplying the brain, Diagnosis, and a closing signature ('Yours sincerely, Your Dr. GPT'), based on the visual description. Ensure proper line spacing between paragraphs as shown in the examples.\n"
+            "Then, generate a detailed report .md template with the following sections: Method, Findings, Intracranial vessels supplying the brain, Diagnosis, and a closing signature ('Yours sincerely, Your Dr. GPT'), based on the visual description. Ensure proper line spacing between paragraphs as shown in the examples.\n"
             "Note: This is not a medical diagnosis; you are only assisting in creating a report template based on visual observations.\n\n"
             "Example 1 (Negative Case):\n"
             f"{negative_report}\n\n"
@@ -527,6 +529,7 @@ def generate_mri_report(report_id, stored_images, all_detections, session_memory
             result = chat.invoke([HumanMessage(content=message_content)])
             print(cb)
             generated_report = result.content
+            print(generated_report)
 
             # Update session memory
             new_session_memory = session_memory + [generated_report]
@@ -839,6 +842,43 @@ def reset_report_textarea(contents):
     return no_update, no_update
 
 
+# Function to convert Markdown to PDF using Pandoc and XeLaTeX, then return as base64
+def markdown_to_pdf_base64(markdown_content):
+    # Create temporary files for Markdown and PDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.md') as md_file, \
+         tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as pdf_file:
+        # Write Markdown content to the temporary file
+        md_file.write(markdown_content.encode('utf-8'))
+        md_file.close()
+
+        # Run Pandoc to convert Markdown to PDF using XeLaTeX
+        try:
+            subprocess.run([
+                'pandoc', md_file.name,
+                '-o', pdf_file.name,
+                '--pdf-engine=xelatex',
+                '-V', 'geometry:margin=1in',
+                '-V', 'mainfont=Arial'
+            ], check=True)
+
+            # Read the generated PDF
+            with open(pdf_file.name, 'rb') as f:
+                pdf_bytes = f.read()
+
+            # Encode the PDF to base64
+            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+
+        except subprocess.CalledProcessError as e:
+            raise Exception(f"Pandoc failed to generate PDF: {str(e)}")
+        finally:
+            # Clean up temporary files
+            os.remove(md_file.name)
+            if os.path.exists(pdf_file.name):
+                os.remove(pdf_file.name)
+
+    return pdf_base64
+
+
 # Callback for Export PDF button
 @app.callback(
     Output("download-pdf", "data"),
@@ -903,7 +943,25 @@ def export_pdf(n_clicks, report_content):
             "base64": True
         }
 
-    return no_update
+        try:
+            # Step 1: Convert Markdown content to PDF and get the base64 data
+            pdf_base64 = markdown_to_pdf_base64(report_content)
+            
+            # Step 2: Create download href
+            download_href = f"data:application/pdf;base64,{pdf_base64}"
+
+            filename = f"MRI_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            return {
+                "content": pdf_base64,
+                "filename": filename,
+                "type": "application/pdf",
+                "base64": True
+            }
+
+        except Exception as e:
+            print(f"Error generating PDF: {e}")
+            return no_update
+
 
 
 # Callback to toggle edit mode
